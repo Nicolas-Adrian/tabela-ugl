@@ -1,0 +1,379 @@
+import { fetchRemoteScoreboard, isAppsScriptConfigured, saveRemoteScoreboard, subscribeRemoteScoreboard } from "./apps-script-service.js";
+import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
+
+const syncChannel = "BroadcastChannel" in window ? new BroadcastChannel("free-fire-scoreboard-channel") : null;
+
+const html = document.documentElement;
+const scoreboardBody = document.getElementById("scoreboard-body");
+const editorForm = document.getElementById("editor-form");
+const teamSelect = document.getElementById("team-select");
+const teamNameInput = document.getElementById("team-name");
+const teamPointsInput = document.getElementById("team-points");
+const teamLogoUrlInput = document.getElementById("team-logo-url");
+const teamLogoFileInput = document.getElementById("team-logo-file");
+const resetButton = document.getElementById("reset-button");
+const presentationButton = document.getElementById("presentation-button");
+const copyOutputLinkButton = document.getElementById("copy-output-link-button");
+const outputLinkInput = document.getElementById("output-link");
+const openOutputButton = document.getElementById("open-output-button");
+const exitPresentationButton = document.getElementById("exit-presentation-button");
+const floatingExitPresentationButton = document.getElementById("floating-exit-presentation-button");
+const syncStatus = document.getElementById("sync-status");
+const playerStatusInputs = [
+  document.getElementById("player-status-1"),
+  document.getElementById("player-status-2"),
+  document.getElementById("player-status-3"),
+  document.getElementById("player-status-4")
+];
+
+let teams = loadStoredTeams() ?? cloneDefaultTeams();
+let selectedTeamRank = teams[0].rank;
+let lastSavedState = JSON.stringify(teams);
+let presentationWindow = null;
+let suppressRemoteSave = false;
+
+function setSyncStatus(mode, hasError = false) {
+  if (!syncStatus) {
+    return;
+  }
+
+  syncStatus.textContent = mode;
+  syncStatus.classList.toggle("online", !hasError && (mode.toLowerCase().includes("apps script") || mode.toLowerCase().includes("online")));
+  syncStatus.classList.toggle("error", hasError);
+}
+
+function buildOutputLink() {
+  return new URL("presentation.html", window.location.href).toString();
+}
+
+function refreshOutputLink() {
+  outputLinkInput.value = buildOutputLink();
+}
+
+function commitLocalState(nextTeams) {
+  teams = sanitizeTeams(nextTeams);
+  lastSavedState = persistLocalTeams(teams);
+
+  if (syncChannel) {
+    syncChannel.postMessage({ type: "teams-updated" });
+  }
+
+  syncPresentationWindow();
+}
+
+async function saveTeams() {
+  commitLocalState(teams);
+
+  if (!isAppsScriptConfigured() || suppressRemoteSave) {
+    return;
+  }
+
+  try {
+    await saveRemoteScoreboard(teams);
+    setSyncStatus("Sincronização: Apps Script online");
+  } catch {
+    setSyncStatus("Sincronização: erro ao salvar no Apps Script", true);
+  }
+}
+
+function renderRows() {
+  scoreboardBody.innerHTML = teams.map((team, index) => {
+    const bars = normalizeStatus(team.status).map((isAlive) => {
+      const active = isAlive ? "active" : "";
+      return `<span class="status-bar ${active}"></span>`;
+    }).join("");
+
+    const logo = team.logo
+      ? `<img src="${team.logo}" alt="Logo ${team.name}">`
+      : createFallback(team.name);
+
+    const selected = team.rank === selectedTeamRank ? "selected" : "";
+
+    return `
+      <article class="table-row ${team.highlight} ${selected}" data-rank="${team.rank}" style="--row-delay: ${index * 120}ms;">
+        <div class="row-rank">${team.rank}</div>
+        <div class="row-team">
+          <div class="team-logo">${logo}</div>
+          <div class="team-name">${team.name}</div>
+        </div>
+        <div class="row-points">${team.points}</div>
+        <div class="row-status">
+          <div class="status-bars" aria-label="${normalizeStatus(team.status).filter(Boolean).length} jogadores vivos">
+            ${bars}
+          </div>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderSelectOptions() {
+  teamSelect.innerHTML = teams.map((team) => `
+    <option value="${team.rank}">${team.rank}. ${team.name}</option>
+  `).join("");
+}
+
+function fillForm(rank) {
+  const team = teams.find((item) => item.rank === Number(rank));
+
+  if (!team) {
+    return;
+  }
+
+  selectedTeamRank = team.rank;
+  teamSelect.value = String(team.rank);
+  teamNameInput.value = team.name;
+  teamPointsInput.value = team.points;
+  teamLogoUrlInput.value = team.logo || "";
+  teamLogoFileInput.value = "";
+  normalizeStatus(team.status).forEach((value, index) => {
+    playerStatusInputs[index].checked = value;
+  });
+  renderRows();
+}
+
+async function applyTeams(nextTeams, source = "local") {
+  teams = sanitizeTeams(nextTeams);
+  commitLocalState(teams);
+  renderSelectOptions();
+  fillForm(selectedTeamRank);
+
+  if (source === "remote") {
+    suppressRemoteSave = true;
+    window.setTimeout(() => {
+      suppressRemoteSave = false;
+    }, 0);
+  }
+}
+
+function syncPresentationWindow() {
+  if (!presentationWindow || presentationWindow.closed) {
+    return;
+  }
+
+  try {
+    presentationWindow.postMessage({ type: "scoreboard-update", teams }, "*");
+  } catch {
+    // Presentation page still syncs through Firebase/local fallback.
+  }
+}
+
+function syncTeamsFromStorage() {
+  const storedTeams = loadStoredTeams();
+
+  if (!storedTeams) {
+    return;
+  }
+
+  const serializedState = JSON.stringify(storedTeams);
+
+  if (serializedState === lastSavedState) {
+    return;
+  }
+
+  teams = storedTeams;
+  lastSavedState = serializedState;
+  refreshOutputLink();
+  renderSelectOptions();
+  fillForm(selectedTeamRank);
+}
+
+function replayPresentationAnimation() {
+  scoreboardBody.querySelectorAll(".table-row").forEach((row) => {
+    row.style.animation = "none";
+    void row.offsetWidth;
+    row.style.animation = "";
+  });
+}
+
+async function enterPresentationMode() {
+  html.classList.add("presentation-active");
+
+  if (document.fullscreenElement !== document.documentElement) {
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      // Fullscreen is optional.
+    }
+  }
+
+  renderRows();
+  replayPresentationAnimation();
+}
+
+async function exitPresentationMode() {
+  html.classList.remove("presentation-active");
+  renderRows();
+
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // Keeps the page usable even if exit fails.
+    }
+  }
+}
+
+teamSelect.addEventListener("change", (event) => {
+  fillForm(event.target.value);
+});
+
+scoreboardBody.addEventListener("click", (event) => {
+  const row = event.target.closest(".table-row");
+
+  if (row) {
+    fillForm(row.dataset.rank);
+  }
+});
+
+teamLogoFileInput.addEventListener("change", (event) => {
+  const [file] = event.target.files;
+
+  if (!file) {
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    teamLogoUrlInput.value = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+editorForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  teams = teams.map((team) => (
+    team.rank === selectedTeamRank
+      ? {
+          ...team,
+          name: teamNameInput.value.trim().toUpperCase() || "TIME",
+          points: Math.max(0, Number(teamPointsInput.value) || 0),
+          status: playerStatusInputs.map((input) => input.checked),
+          logo: teamLogoUrlInput.value.trim()
+        }
+      : team
+  ));
+
+  await saveTeams();
+  renderSelectOptions();
+  fillForm(selectedTeamRank);
+});
+
+resetButton.addEventListener("click", async () => {
+  teams = cloneDefaultTeams();
+  await saveTeams();
+  renderSelectOptions();
+  fillForm(1);
+});
+
+presentationButton.addEventListener("click", () => {
+  enterPresentationMode();
+});
+
+exitPresentationButton.addEventListener("click", () => {
+  exitPresentationMode();
+});
+
+floatingExitPresentationButton.addEventListener("click", () => {
+  exitPresentationMode();
+});
+
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) {
+    html.classList.remove("presentation-active");
+    renderRows();
+  }
+});
+
+window.addEventListener("storage", (event) => {
+  if (event.key === STORAGE_KEY || event.key === STORAGE_SYNC_KEY) {
+    syncTeamsFromStorage();
+  }
+});
+
+if (syncChannel) {
+  syncChannel.addEventListener("message", () => {
+    syncTeamsFromStorage();
+  });
+}
+
+copyOutputLinkButton.addEventListener("click", async () => {
+  const outputLink = buildOutputLink();
+  outputLinkInput.value = outputLink;
+
+  try {
+    await navigator.clipboard.writeText(outputLink);
+    copyOutputLinkButton.textContent = "Link copiado";
+  } catch {
+    outputLinkInput.focus();
+    outputLinkInput.select();
+    copyOutputLinkButton.textContent = "Copie manualmente";
+  }
+
+  window.setTimeout(() => {
+    copyOutputLinkButton.textContent = "Copiar link OBS";
+  }, 1800);
+});
+
+openOutputButton.addEventListener("click", () => {
+  presentationWindow = window.open(buildOutputLink(), "free-fire-presentation");
+  window.setTimeout(() => {
+    syncPresentationWindow();
+  }, 300);
+});
+
+async function initRemoteSync() {
+  if (!isAppsScriptConfigured()) {
+    setSyncStatus("Sincronização: local (preencha apps-script-config.js para publicar)");
+    return;
+  }
+
+  setSyncStatus("Sincronização: conectando ao Apps Script...");
+
+  try {
+    const remoteTeams = await fetchRemoteScoreboard();
+
+    if (remoteTeams) {
+      teams = remoteTeams;
+      commitLocalState(teams);
+      renderSelectOptions();
+      fillForm(selectedTeamRank);
+    } else {
+      await saveRemoteScoreboard(teams);
+    }
+
+    subscribeRemoteScoreboard(
+      (nextTeams) => {
+        if (!nextTeams) {
+          return;
+        }
+
+        const serializedState = JSON.stringify(nextTeams);
+
+        if (serializedState === lastSavedState) {
+          return;
+        }
+
+        teams = nextTeams;
+        commitLocalState(teams);
+        renderSelectOptions();
+        fillForm(selectedTeamRank);
+        setSyncStatus("Sincronização: Apps Script online");
+      },
+      () => {
+        setSyncStatus("Sincronização: erro na leitura do Apps Script", true);
+      }
+    );
+
+    setSyncStatus("Sincronização: Apps Script online");
+  } catch {
+    setSyncStatus("Sincronização: erro ao conectar no Apps Script", true);
+  }
+}
+
+refreshOutputLink();
+renderSelectOptions();
+renderRows();
+fillForm(selectedTeamRank);
+initRemoteSync();

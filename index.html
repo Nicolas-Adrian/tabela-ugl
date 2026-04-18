@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tabela Free Fire</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="scoreboard-section">
+      <div class="scoreboard-frame">
+        <div class="table-header">
+          <div class="header-rank"></div>
+          <div class="header-team">TIMES</div>
+          <div class="header-points">A</div>
+          <div class="header-status">STATUS</div>
+        </div>
+
+        <div id="scoreboard-body" class="table-body"></div>
+      </div>
+    </section>
+
+    <aside class="editor-panel">
+      <div class="panel-heading">
+        <p class="eyebrow">Editor</p>
+        <h1>Atualize os times</h1>
+        <p class="panel-copy">Clique em uma linha da tabela ou use os campos abaixo para trocar nome, logo, abates e status de vida dos jogadores.</p>
+      </div>
+
+      <div class="presentation-actions">
+        <button type="button" id="presentation-button" class="save-button">Modo apresentação</button>
+        <button type="button" id="copy-output-link-button" class="ghost-button">Copiar link OBS</button>
+        <button type="button" id="exit-presentation-button" class="ghost-button exit-button">Sair da apresentação</button>
+      </div>
+
+      <div class="output-box">
+        <p class="output-label">Link de output</p>
+        <p id="sync-status" class="sync-status">Sincronização: local</p>
+        <div class="output-row">
+          <input id="output-link" type="text" readonly>
+          <button type="button" id="open-output-button" class="ghost-button">Abrir output</button>
+        </div>
+      </div>
+
+      <form id="editor-form" class="editor-form">
+        <label>
+          Time
+          <select id="team-select"></select>
+        </label>
+
+        <label>
+          Nome da equipe
+          <input id="team-name" type="text" maxlength="18" placeholder="Ex: LOUD">
+        </label>
+
+        <label>
+          Abates
+          <input id="team-points" type="number" min="0" max="99" placeholder="0">
+        </label>
+
+        <fieldset class="status-fieldset">
+          <legend>Status dos jogadores</legend>
+          <div class="player-status-grid">
+            <label class="status-toggle">
+              <span>Jogador 1</span>
+              <input id="player-status-1" type="checkbox">
+            </label>
+            <label class="status-toggle">
+              <span>Jogador 2</span>
+              <input id="player-status-2" type="checkbox">
+            </label>
+            <label class="status-toggle">
+              <span>Jogador 3</span>
+              <input id="player-status-3" type="checkbox">
+            </label>
+            <label class="status-toggle">
+              <span>Jogador 4</span>
+              <input id="player-status-4" type="checkbox">
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          URL da logo
+          <input id="team-logo-url" type="url" placeholder="https://...">
+        </label>
+
+        <label>
+          Ou envie uma imagem
+          <input id="team-logo-file" type="file" accept="image/*">
+        </label>
+
+        <div class="panel-actions">
+          <button type="submit" class="save-button">Salvar equipe</button>
+          <button type="button" id="reset-button" class="ghost-button">Restaurar padrão</button>
+        </div>
+      </form>
+    </aside>
+  </main>
+
+  <button type="button" id="floating-exit-presentation-button" class="ghost-button floating-exit-button">Sair da apresentação</button>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
