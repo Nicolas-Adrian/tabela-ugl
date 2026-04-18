@@ -43,7 +43,7 @@ function renderRows() {
       html.classList.remove("presentation-animate");
       hasAnimatedIn = true;
     }, 2200);
-    }
+  }
 }
 
 function applyTeams(nextTeams) {
