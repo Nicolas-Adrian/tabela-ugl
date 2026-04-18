@@ -79,18 +79,61 @@ async function saveTeams() {
 async function resolveLogoValue(teamName, logoValue) {
   const trimmedLogo = String(logoValue ?? "").trim();
 
-  if (!trimmedLogo || !trimmedLogo.startsWith("data:") || !isAppsScriptConfigured()) {
+  if (!trimmedLogo || !isAppsScriptConfigured()) {
     return trimmedLogo;
   }
 
-  setSyncStatus("Sincronização: enviando logo para o Apps Script...");
+  if (trimmedLogo.startsWith("data:")) {
+    setSyncStatus("Sincronização: enviando logo para o Apps Script...");
 
-  const extensionMatch = trimmedLogo.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,/);
-  const extension = extensionMatch ? extensionMatch[1].replace("jpeg", "jpg") : "png";
-  const logoUrl = await uploadLogoAsset(trimmedLogo, `${teamName.toLowerCase()}-logo.${extension}`);
+    const extensionMatch = trimmedLogo.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,/);
+    const extension = extensionMatch ? extensionMatch[1].replace("jpeg", "jpg") : "png";
+    const logoUrl = await uploadLogoAsset(trimmedLogo, `${teamName.toLowerCase()}-logo.${extension}`);
 
-  setSyncStatus("Sincronização: logo enviada, salvando tabela...");
-  return logoUrl;
+    setSyncStatus("Sincronização: logo enviada, salvando tabela...");
+    return logoUrl;
+  }
+
+  if (/^https?:\/\//i.test(trimmedLogo)) {
+    setSyncStatus("Sincronização: baixando logo pela URL...");
+
+    try {
+      const response = await fetch(trimmedLogo, { mode: "cors" });
+
+      if (!response.ok) {
+        throw new Error("Image fetch failed");
+      }
+
+      const blob = await response.blob();
+
+      if (!blob.type.startsWith("image/")) {
+        throw new Error("URL is not an image");
+      }
+
+      const dataUrl = await blobToDataUrl(blob);
+      const extension = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+
+      setSyncStatus("Sincronização: enviando logo da URL para o Apps Script...");
+      const logoUrl = await uploadLogoAsset(dataUrl, `${teamName.toLowerCase()}-logo.${extension}`);
+
+      setSyncStatus("Sincronização: logo enviada, salvando tabela...");
+      return logoUrl;
+    } catch {
+      setSyncStatus("Sincronização: URL salva sem upload; confira se a imagem é pública", true);
+      return trimmedLogo;
+    }
+  }
+
+  return trimmedLogo;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 function renderRows() {
