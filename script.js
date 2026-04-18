@@ -1,4 +1,4 @@
-import { fetchRemoteScoreboard, isAppsScriptConfigured, saveRemoteScoreboard, subscribeRemoteScoreboard } from "./apps-script-service.js";
+import { fetchRemoteScoreboard, isAppsScriptConfigured, saveRemoteScoreboard, subscribeRemoteScoreboard, uploadLogoAsset } from "./apps-script-service.js";
 import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
 
 const syncChannel = "BroadcastChannel" in window ? new BroadcastChannel("free-fire-scoreboard-channel") : null;
@@ -74,6 +74,23 @@ async function saveTeams() {
   } catch {
     setSyncStatus("Sincronização: erro ao salvar no Apps Script", true);
   }
+}
+
+async function resolveLogoValue(teamName, logoValue) {
+  const trimmedLogo = String(logoValue ?? "").trim();
+
+  if (!trimmedLogo || !trimmedLogo.startsWith("data:") || !isAppsScriptConfigured()) {
+    return trimmedLogo;
+  }
+
+  setSyncStatus("Sincronização: enviando logo para o Apps Script...");
+
+  const extensionMatch = trimmedLogo.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,/);
+  const extension = extensionMatch ? extensionMatch[1].replace("jpeg", "jpg") : "png";
+  const logoUrl = await uploadLogoAsset(trimmedLogo, `${teamName.toLowerCase()}-logo.${extension}`);
+
+  setSyncStatus("Sincronização: logo enviada, salvando tabela...");
+  return logoUrl;
 }
 
 function renderRows() {
@@ -243,14 +260,24 @@ teamLogoFileInput.addEventListener("change", (event) => {
 editorForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  const nextTeamName = teamNameInput.value.trim().toUpperCase() || "TIME";
+  let nextLogoValue = teamLogoUrlInput.value.trim();
+
+  try {
+    nextLogoValue = await resolveLogoValue(nextTeamName, nextLogoValue);
+  } catch {
+    setSyncStatus("Sincronização: erro ao enviar a logo", true);
+    return;
+  }
+
   teams = teams.map((team) => (
     team.rank === selectedTeamRank
       ? {
           ...team,
-          name: teamNameInput.value.trim().toUpperCase() || "TIME",
+          name: nextTeamName,
           points: Math.max(0, Number(teamPointsInput.value) || 0),
           status: playerStatusInputs.map((input) => input.checked),
-          logo: teamLogoUrlInput.value.trim()
+          logo: nextLogoValue
         }
       : team
   ));
