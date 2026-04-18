@@ -484,10 +484,13 @@ html.presentation-active .scoreboard-section {
 html.presentation-active .scoreboard-frame {
   background: transparent;
   box-shadow: none;
+}
+
+html.presentation-active.presentation-animate .scoreboard-frame {
   animation: board-slide-in 0.42s ease-out both;
 }
 
-html.presentation-active .table-row {
+html.presentation-active.presentation-animate .table-row {
   animation: row-slide-in 0.44s ease-out both;
   animation-delay: var(--row-delay, 0ms);
 }
