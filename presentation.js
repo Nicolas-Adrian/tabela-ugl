@@ -8,6 +8,7 @@ const scoreboardBody = document.getElementById("scoreboard-body");
 
 let teams = loadStoredTeams() ?? cloneDefaultTeams();
 let lastSavedState = JSON.stringify(teams);
+let hasAnimatedIn = false;
 
 function renderRows() {
   scoreboardBody.innerHTML = teams.map((team, index) => {
@@ -35,6 +36,14 @@ function renderRows() {
       </article>
     `;
   }).join("");
+
+  if (!hasAnimatedIn) {
+    html.classList.add("presentation-animate");
+    window.setTimeout(() => {
+      html.classList.remove("presentation-animate");
+      hasAnimatedIn = true;
+    }, 2200);
+    }
 }
 
 function applyTeams(nextTeams) {
