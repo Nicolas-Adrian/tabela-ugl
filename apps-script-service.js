@@ -67,6 +67,36 @@ export async function saveRemoteScoreboard(teams) {
   return Boolean(payload?.ok);
 }
 
+export async function uploadLogoAsset(dataUrl, fileName = "logo.png") {
+  if (!isAppsScriptConfigured()) {
+    return null;
+  }
+
+  const response = await fetch(buildUrl({ mode: "uploadLogo" }), {
+    method: "POST",
+    redirect: "follow",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8"
+    },
+    body: JSON.stringify({
+      fileName,
+      dataUrl
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Apps Script upload failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+
+  if (!payload?.ok || !payload.logoUrl) {
+    throw new Error("Apps Script upload failed: invalid payload");
+  }
+
+  return String(payload.logoUrl);
+}
+
 export function subscribeRemoteScoreboard(onTeams, onError, intervalMs = 1500) {
   if (!isAppsScriptConfigured()) {
     return () => {};
