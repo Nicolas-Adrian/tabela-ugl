@@ -102,14 +102,14 @@ export function loadStoredTeams() {
   }
 
   try {
-    return sanitizeTeams(JSON.parse(savedTeams));
+    return getOrderedTeamsForStorage(JSON.parse(savedTeams));
   } catch {
     return null;
   }
 }
 
 export function persistLocalTeams(teams) {
-  const serialized = JSON.stringify(sanitizeTeams(teams));
+  const serialized = JSON.stringify(getOrderedTeamsForStorage(teams));
   localStorage.setItem(STORAGE_KEY, serialized);
   localStorage.setItem(STORAGE_SYNC_KEY, String(Date.now()));
   return serialized;
