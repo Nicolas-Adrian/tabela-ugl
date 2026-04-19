@@ -86,6 +86,10 @@ export function getRankedTeams(teams) {
   }));
 }
 
+export function getOrderedTeamsForStorage(teams) {
+  return getRankedTeams(teams).map(({ rank, highlight, ...team }) => team);
+}
+
 export function createFallback(name) {
   return `<div class="team-fallback">${String(name).slice(0, 3).toUpperCase()}</div>`;
 }
