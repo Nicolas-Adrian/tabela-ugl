@@ -1,5 +1,5 @@
 import { fetchRemoteScoreboard, isAppsScriptConfigured, saveRemoteScoreboard, subscribeRemoteScoreboard, uploadLogoAsset } from "./apps-script-service.js";
-import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
+import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, getNextEliminationOrder, getRankedTeams, isTeamEliminated, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
 
 const syncChannel = "BroadcastChannel" in window ? new BroadcastChannel("free-fire-scoreboard-channel") : null;
 
@@ -27,7 +27,7 @@ const playerStatusInputs = [
 ];
 
 let teams = loadStoredTeams() ?? cloneDefaultTeams();
-let selectedTeamRank = teams[0].rank;
+let selectedTeamId = teams[0].id;
 let lastSavedState = JSON.stringify(teams);
 let presentationWindow = null;
 let suppressRemoteSave = false;
@@ -137,7 +137,9 @@ function blobToDataUrl(blob) {
 }
 
 function renderRows() {
-  scoreboardBody.innerHTML = teams.map((team, index) => {
+  const rankedTeams = getRankedTeams(teams);
+
+  scoreboardBody.innerHTML = rankedTeams.map((team, index) => {
     const bars = normalizeStatus(team.status).map((isAlive) => {
       const active = isAlive ? "active" : "";
       return `<span class="status-bar ${active}"></span>`;
@@ -147,10 +149,10 @@ function renderRows() {
       ? `<img src="${team.logo}" alt="Logo ${team.name}">`
       : createFallback(team.name);
 
-    const selected = team.rank === selectedTeamRank ? "selected" : "";
+    const selected = team.id === selectedTeamId ? "selected" : "";
 
     return `
-      <article class="table-row ${team.highlight} ${selected}" data-rank="${team.rank}" style="--row-delay: ${index * 120}ms;">
+      <article class="table-row ${team.highlight} ${selected}" data-team-id="${team.id}" style="--row-delay: ${index * 120}ms;">
         <div class="row-rank">${team.rank}</div>
         <div class="row-team">
           <div class="team-logo">${logo}</div>
@@ -168,20 +170,20 @@ function renderRows() {
 }
 
 function renderSelectOptions() {
-  teamSelect.innerHTML = teams.map((team) => `
-    <option value="${team.rank}">${team.rank}. ${team.name}</option>
+  teamSelect.innerHTML = getRankedTeams(teams).map((team) => `
+    <option value="${team.id}">${team.rank}. ${team.name}</option>
   `).join("");
 }
 
-function fillForm(rank) {
-  const team = teams.find((item) => item.rank === Number(rank));
+function fillForm(teamId) {
+  const team = teams.find((item) => item.id === String(teamId));
 
   if (!team) {
     return;
   }
 
-  selectedTeamRank = team.rank;
-  teamSelect.value = String(team.rank);
+  selectedTeamId = team.id;
+  teamSelect.value = team.id;
   teamNameInput.value = team.name;
   teamPointsInput.value = team.points;
   teamLogoUrlInput.value = team.logo || "";
@@ -196,7 +198,7 @@ async function applyTeams(nextTeams, source = "local") {
   teams = sanitizeTeams(nextTeams);
   commitLocalState(teams);
   renderSelectOptions();
-  fillForm(selectedTeamRank);
+  fillForm(selectedTeamId);
 
   if (source === "remote") {
     suppressRemoteSave = true;
@@ -235,7 +237,7 @@ function syncTeamsFromStorage() {
   lastSavedState = serializedState;
   refreshOutputLink();
   renderSelectOptions();
-  fillForm(selectedTeamRank);
+  fillForm(selectedTeamId);
 }
 
 function replayPresentationAnimation() {
@@ -282,7 +284,7 @@ scoreboardBody.addEventListener("click", (event) => {
   const row = event.target.closest(".table-row");
 
   if (row) {
-    fillForm(row.dataset.rank);
+    fillForm(row.dataset.teamId);
   }
 });
 
@@ -314,27 +316,26 @@ editorForm.addEventListener("submit", async (event) => {
   }
 
   teams = teams.map((team) => (
-    team.rank === selectedTeamRank
-      ? {
-          ...team,
+    team.id === selectedTeamId
+      ? updateTeamWithRankingRules(team, {
           name: nextTeamName,
           points: Math.max(0, Number(teamPointsInput.value) || 0),
           status: playerStatusInputs.map((input) => input.checked),
           logo: nextLogoValue
-        }
+        })
       : team
   ));
 
   await saveTeams();
   renderSelectOptions();
-  fillForm(selectedTeamRank);
+  fillForm(selectedTeamId);
 });
 
 resetButton.addEventListener("click", async () => {
   teams = cloneDefaultTeams();
   await saveTeams();
   renderSelectOptions();
-  fillForm(1);
+  fillForm(teams[0].id);
 });
 
 presentationButton.addEventListener("click", () => {
@@ -408,7 +409,7 @@ async function initRemoteSync() {
       teams = remoteTeams;
       commitLocalState(teams);
       renderSelectOptions();
-      fillForm(selectedTeamRank);
+      fillForm(selectedTeamId);
     } else {
       await saveRemoteScoreboard(teams);
     }
@@ -428,7 +429,7 @@ async function initRemoteSync() {
         teams = nextTeams;
         commitLocalState(teams);
         renderSelectOptions();
-        fillForm(selectedTeamRank);
+        fillForm(selectedTeamId);
         setSyncStatus("Sincronização: Apps Script online");
       },
       () => {
@@ -445,5 +446,28 @@ async function initRemoteSync() {
 refreshOutputLink();
 renderSelectOptions();
 renderRows();
-fillForm(selectedTeamRank);
+fillForm(selectedTeamId);
 initRemoteSync();
+
+function updateTeamWithRankingRules(currentTeam, nextValues) {
+  const nextStatus = normalizeStatus(nextValues.status ?? currentTeam.status);
+  const wasEliminated = isTeamEliminated(currentTeam);
+  const isEliminated = nextStatus.every((statusValue) => !statusValue);
+
+  let eliminationOrder = currentTeam.eliminationOrder;
+
+  if (!wasEliminated && isEliminated) {
+    eliminationOrder = getNextEliminationOrder(teams);
+  }
+
+  if (wasEliminated && !isEliminated) {
+    eliminationOrder = null;
+  }
+
+  return {
+    ...currentTeam,
+    ...nextValues,
+    status: nextStatus,
+    eliminationOrder
+  };
+}
