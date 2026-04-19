@@ -1,5 +1,5 @@
 import { fetchRemoteScoreboard, isAppsScriptConfigured, subscribeRemoteScoreboard } from "./apps-script-service.js";
-import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
+import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, getRankedTeams, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
 
 const syncChannel = "BroadcastChannel" in window ? new BroadcastChannel("free-fire-scoreboard-channel") : null;
 
@@ -11,7 +11,7 @@ let lastSavedState = JSON.stringify(teams);
 let hasAnimatedIn = false;
 
 function renderRows() {
-  scoreboardBody.innerHTML = teams.map((team, index) => {
+  scoreboardBody.innerHTML = getRankedTeams(teams).map((team, index) => {
     const bars = normalizeStatus(team.status).map((isAlive) => `
       <span class="status-bar ${isAlive ? "active" : ""}"></span>
     `).join("");
