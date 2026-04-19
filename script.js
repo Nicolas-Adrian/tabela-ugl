@@ -1,5 +1,5 @@
 import { fetchRemoteScoreboard, isAppsScriptConfigured, saveRemoteScoreboard, subscribeRemoteScoreboard, uploadLogoAsset } from "./apps-script-service.js";
-import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, getNextEliminationOrder, getRankedTeams, isTeamEliminated, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
+import { STORAGE_KEY, STORAGE_SYNC_KEY, cloneDefaultTeams, createFallback, getNextEliminationOrder, getOrderedTeamsForStorage, getRankedTeams, isTeamEliminated, loadStoredTeams, normalizeStatus, persistLocalTeams, sanitizeTeams } from "./scoreboard-shared.js";
 
 const syncChannel = "BroadcastChannel" in window ? new BroadcastChannel("free-fire-scoreboard-channel") : null;
 
@@ -51,7 +51,7 @@ function refreshOutputLink() {
 }
 
 function commitLocalState(nextTeams) {
-  teams = sanitizeTeams(nextTeams);
+  teams = getOrderedTeamsForStorage(nextTeams);
   lastSavedState = persistLocalTeams(teams);
 
   if (syncChannel) {
@@ -195,7 +195,7 @@ function fillForm(teamId) {
 }
 
 async function applyTeams(nextTeams, source = "local") {
-  teams = sanitizeTeams(nextTeams);
+  teams = getOrderedTeamsForStorage(nextTeams);
   commitLocalState(teams);
   renderSelectOptions();
   fillForm(selectedTeamId);
